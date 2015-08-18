@@ -1,7 +1,11 @@
-FROM phusion/baseimage:0.9.15
-MAINTAINER Nathan Hopkins <natehop@gmail.com>
+FROM phusion/baseimage:latest
+MAINTAINER Christian Duhard <christian.duhard@j2.com>
 
-#RUN echo deb http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main universe > /etc/apt/sources.list.d/universe.list
+ENV INFLUXDB_VERSION 0.9.2.1
+ENV PRE_CREATE_DB data
+ENV INFLUXDB_DATA_USER data
+ENV INFLUXDB_DATA_PW data
+
 RUN apt-get -y update\
  && apt-get -y upgrade
 
@@ -27,6 +31,21 @@ RUN pip install django==1.3\
  django-tagging==0.3.1\
  twisted==11.1.0\
  txAMQP==0.6.2
+
+#install InfluxDB
+RUN curl -s -o /tmp/influxdb_latest_amd64.deb https://s3.amazonaws.com/influxdb/influxdb_${INFLUXDB_VERSION}_amd64.deb && \
+  dpkg -i /tmp/influxdb_latest_amd64.deb && \
+  rm /tmp/influxdb_latest_amd64.deb && \
+  rm -rf /var/lib/apt/lists/*
+ADD conf/influxdb/config.toml /etc/influxdb/config.toml
+ADD scripts/setup_influxdb.sh /tmp/setup_influxdb.sh
+RUN /tmp/setup_influxdb.sh
+
+ENV PRE_CREATE_DB **None**
+ENV SSL_SUPPORT **False**
+ENV SSL_CERT **None**
+
+EXPOSE 8083 8086
 
 # install graphite
 RUN git clone -b 0.9.12 https://github.com/graphite-project/graphite-web.git /usr/local/src/graphite-web
@@ -70,13 +89,23 @@ ADD daemons/carbon-aggregator.sh /etc/service/carbon-aggregator/run
 ADD daemons/graphite.sh /etc/service/graphite/run
 ADD daemons/statsd.sh /etc/service/statsd/run
 ADD daemons/nginx.sh /etc/service/nginx/run
+ADD daemons/influxdb.sh /etc/service/influxdb/run
 
 # cleanup
-RUN apt-get clean\
+RUN apt-get clean \
  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # defaults
 EXPOSE 80:80 2003:2003 8125:8125/udp
-VOLUME ["/opt/graphite", "/etc/nginx", "/opt/statsd", "/etc/logrotate.d", "/var/log"]
+
+# Create volumes
+VOLUME /opt/graphite
+VOLUME /opt/graphite/storage
+VOLUME /etc/nginx
+VOLUME /opt/statsd
+VOLUME /etc/logrotate.d
+VOLUME /var/log
+VOLUME /data
+
 ENV HOME /root
 CMD ["/sbin/my_init"]
